@@ -1,8 +1,8 @@
 name: Build scutclient for AX3000T
 
 on:
-  workflow_dispatch: # 手动点击运行
-  push: # 提交代码时运行
+  workflow_dispatch:
+  push:
 
 jobs:
   build:
@@ -19,40 +19,43 @@ jobs:
 
       - name: Download SDK
         run: |
-          # 针对 AX3000T 的 MT7981 芯片，使用官方 Filogic SDK
-          SDK_URL="https://downloads.openwrt.org/releases/22.03.5/targets/mediatek/filogic/openwrt-sdk-22.03.5-mediatek-filogic_gcc-11.2.0_musl.Linux-x86_64.tar.xz"
-          curl -L $SDK_URL -o sdk.tar.xz
+          # 使用 23.05 的 SDK，这个版本对 AX3000T (MT7981) 的支持最完善
+          SDK_URL="https://downloads.openwrt.org/releases/23.05.0/targets/mediatek/filogic/openwrt-sdk-23.05.0-mediatek-filogic_gcc-12.3.0_musl.Linux-x86_64.tar.xz"
+          
+          # 使用 -f 确保如果 404 就直接报错，不下载废包
+          # 使用 --retry 应对网络抖动
+          curl -fL --retry 3 "$SDK_URL" -o sdk.tar.xz
+          
+          # 先检查文件类型再解压
+          file sdk.tar.xz
           tar -xJ -f sdk.tar.xz --strip-components=1
 
       - name: Add scutclient Source
         run: |
-          # 创建目录并拉取最新源码
           mkdir -p package/scutclient
-          git clone https://github.com/scutclient/scutclient.git scutclient-repo
+          # 直接拉取源码，并修正 Makefile 路径
+          git clone --depth 1 https://github.com/scutclient/scutclient.git temp-repo
+          cp -r temp-repo/openwrt/* package/scutclient/
           
-          # 关键操作：将 openwrt 专用的 Makefile 放到编译目录
-          cp -r scutclient-repo/openwrt/* package/scutclient/
-          
-          # 拉取带界面的插件 (LuCI)，这样你就不用在 SSH 里敲命令了
-          git clone https://github.com/scutclient/luci-app-scutclient.git package/luci-app-scutclient
+          # 同时拉取界面插件
+          git clone --depth 1 https://github.com/scutclient/luci-app-scutclient.git package/luci-app-scutclient
 
       - name: Configure and Compile
         run: |
-          # 更新 Feeds 环境
           ./scripts/feeds update -a
           ./scripts/feeds install -a
           
-          # 写入配置文件
           echo "CONFIG_PACKAGE_scutclient=m" >> .config
           echo "CONFIG_PACKAGE_luci-app-scutclient=m" >> .config
           
-          # 同步依赖并编译
           make defconfig
-          make package/scutclient/compile V=s
-          make package/luci-app-scutclient/compile V=s
+          # 针对 AX3000T 这种多核芯片，可以使用 -j 参数加速编译
+          make package/scutclient/compile V=s -j$(nproc)
+          make package/luci-app-scutclient/compile V=s -j$(nproc)
 
       - name: Upload Artifacts
         uses: actions/upload-artifact@v4
+        if: always()
         with:
-          name: AX3000T-scutclient-ipk
-          path: bin/packages/aarch64_cortex-a53/base/*.ipk # 也可以用 bin/**/*.ipk 保证能搜到
+          name: AX3000T-scutclient
+          path: bin/packages/**/scutclient*.ipk
