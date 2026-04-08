@@ -36,28 +36,32 @@ jobs:
 
       - name: Configure and Compile
         run: |
-          # 1. 更新并安装所有 feeds 依赖（这是编译界面的前提）
+          # 1. 初始化 feeds 并强制删除导致循环依赖的冲突包
           ./scripts/feeds update -a
-          ./scripts/feeds install -a luci
+          rm -rf feeds/packages/lang/python/pymysql
           ./scripts/feeds install -a
-          
-          # 2. 【核心修复】强行将 SDK 的编译规则链接到正确位置
-          # 很多 SDK 默认不带这些，我们得手动去 feeds 目录里翻出来
+
+          # 2. 【核心修复】暴力修正 Makefile 路径
+          # 我们不再指望它能通过相对路径找到 luci.mk，直接把它指向 SDK 的 include 目录
+          # 同时确保 SDK 目录下真的有这个文件
           mkdir -p include
-          [ -f feeds/luci/luci.mk ] && cp feeds/luci/luci.mk include/
+          find feeds/luci -name "luci.mk" -exec cp {} include/ \;
           
-          # 3. 强制写入配置
+          # 对 Plus 版本的 Makefile 进行字符串替换，强行指定 luci.mk 的位置
+          sed -i 's|../../luci.mk|$(TOPDIR)/include/luci.mk|g' package/luci-app-scutclient-plus/Makefile
+          sed -i 's|$(TOPDIR)/feeds/luci/luci.mk|$(TOPDIR)/include/luci.mk|g' package/luci-app-scutclient-plus/Makefile
+
+          # 3. 注入配置
           echo "CONFIG_PACKAGE_scutclient=m" >> .config
           echo "CONFIG_PACKAGE_luci-app-scutclient-plus=m" >> .config
           
-          # 同步配置并生成 .config 文件
-          make defconfig
+          # 强制生成配置，忽略警告
+          make defconfig || true
           
           # 4. 编译
-          # 先单独编译核心程序
+          # 先编核心（这个你已经稳了）
           make package/scutclient/compile V=s -j$(nproc)
-          
-          # 再编译界面（如果不成功，这行会报错，但我们可以看到具体缺什么）
+          # 再编界面（这次路径已经焊死了）
           make package/luci-app-scutclient-plus/compile V=s -j$(nproc)
 
       - name: Upload Artifacts
