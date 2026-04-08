@@ -1,48 +1,58 @@
-name: Build
+name: Build scutclient for AX3000T
 
 on:
-  pull_request:
-    branches:
-      - master
-  push:
-  release:
+  workflow_dispatch: # 手动点击运行
+  push: # 提交代码时运行
 
 jobs:
   build:
-    name: ${{ matrix.arch }} build
-    runs-on: ubuntu-latest
-    strategy:
-      fail-fast: false
-      matrix:
-        arch:
-          - aarch64_cortex-a53
-
-
+    runs-on: ubuntu-22.04
     steps:
-      - uses: actions/checkout@v3
-        with:
-          fetch-depth: 0
+      - name: Checkout Repository
+        uses: actions/checkout@v4
 
-      - name: Prepare package
+      - name: Prepare Environment
         run: |
-          sed -i '/^SRCDIR/ s/$/\/feed/' openwrt/Makefile
-          mkdir -p feed/scutclient
-          mv openwrt/Makefile feed/scutclient/
-          cat feed/scutclient/Makefile
+          sudo apt-get update
+          sudo apt-get install -y build-essential flex bison gawk gcc-multilib g++-multilib \
+          gettext git libncurses5-dev libssl-dev python3-distutils rsync unzip zlib1g-dev swig
 
-      - name: Build
-        uses: openwrt/gh-action-sdk@v7 # 使用较新的版本尝试兼容
-        env:
-          ARCH: aarch64_cortex-a53
-          FEEDNAME: action
-          PACKAGES: scutclient
-          V: s  # 强制开启详细日志，这样下次报错我们能看到具体哪行代码错了
+      - name: Download SDK
+        run: |
+          # 针对 AX3000T 的 MT7981 芯片，使用官方 Filogic SDK
+          SDK_URL="https://downloads.openwrt.org/releases/22.03.5/targets/mediatek/filogic/openwrt-sdk-22.03.5-mediatek-filogic_gcc-11.2.0_musl.Linux-x86_64.tar.xz"
+          curl -L $SDK_URL -o sdk.tar.xz
+          tar -xJ -f sdk.tar.xz --strip-components=1
 
-      - name: Check Build Result
-        run: ls -R bin/ # 这一步能让我们在日志里确认 ipk 到底生成在哪个文件夹了
+      - name: Add scutclient Source
+        run: |
+          # 创建目录并拉取最新源码
+          mkdir -p package/scutclient
+          git clone https://github.com/scutclient/scutclient.git scutclient-repo
+          
+          # 关键操作：将 openwrt 专用的 Makefile 放到编译目录
+          cp -r scutclient-repo/openwrt/* package/scutclient/
+          
+          # 拉取带界面的插件 (LuCI)，这样你就不用在 SSH 里敲命令了
+          git clone https://github.com/scutclient/luci-app-scutclient.git package/luci-app-scutclient
 
-      - name: Store packages
+      - name: Configure and Compile
+        run: |
+          # 更新 Feeds 环境
+          ./scripts/feeds update -a
+          ./scripts/feeds install -a
+          
+          # 写入配置文件
+          echo "CONFIG_PACKAGE_scutclient=m" >> .config
+          echo "CONFIG_PACKAGE_luci-app-scutclient=m" >> .config
+          
+          # 同步依赖并编译
+          make defconfig
+          make package/scutclient/compile V=s
+          make package/luci-app-scutclient/compile V=s
+
+      - name: Upload Artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: ${{ matrix.arch }}-packages
-          path: bin/packages/${{ matrix.arch }}/action/*.ipk
+          name: AX3000T-scutclient-ipk
+          path: bin/packages/aarch64_cortex-a53/base/*.ipk # 也可以用 bin/**/*.ipk 保证能搜到
