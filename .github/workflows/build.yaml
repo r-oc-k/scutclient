@@ -52,11 +52,15 @@ jobs:
           cat feed/scutclient/Makefile
 
       - name: Build
-        uses: openwrt/gh-action-sdk@v7
+        uses: openwrt/gh-action-sdk@v7 # 使用较新的版本尝试兼容
         env:
-          ARCH: ${{ matrix.arch }}
-          NO_DEFAULT_FEEDS: 1
+          ARCH: aarch64_cortex-a53
+          FEEDNAME: action
           PACKAGES: scutclient
+          V: s  # 强制开启详细日志，这样下次报错我们能看到具体哪行代码错了
+
+      - name: Check Build Result
+        run: ls -R bin/ # 这一步能让我们在日志里确认 ipk 到底生成在哪个文件夹了
 
       - name: Store packages
         uses: actions/upload-artifact@v4
