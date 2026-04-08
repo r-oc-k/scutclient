@@ -42,14 +42,25 @@ jobs:
 
       - name: Configure and Compile
         run: |
+          # 1. 解决循环依赖问题：删掉那个引起冲突的包
           ./scripts/feeds update -a
+          rm -rf feeds/packages/lang/python/pymysql
           ./scripts/feeds install -a
-          
+
+          # 2. 【核心修复】创建软链接，把编译规则骗到它想要的位置
+          # 如果 ../../luci.mk 找不到，我们就手动定位它
+          mkdir -p feeds/luci
+          [ -f include/luci.mk ] && ln -sf ../../include/luci.mk package/luci-app-scutclient/luci.mk
+          # 或者直接指定 SDK 自带的路径
+          sed -i 's|../../luci.mk|$(TOPDIR)/feeds/luci/luci.mk|g' package/luci-app-scutclient/Makefile || true
+
+          # 3. 配置包
           echo "CONFIG_PACKAGE_scutclient=m" >> .config
           echo "CONFIG_PACKAGE_luci-app-scutclient=m" >> .config
           
           make defconfig
-          # 针对 AX3000T 这种多核芯片，可以使用 -j 参数加速编译
+          
+          # 4. 编译 (先编内核，再编界面)
           make package/scutclient/compile V=s -j$(nproc)
           make package/luci-app-scutclient/compile V=s -j$(nproc)
 
