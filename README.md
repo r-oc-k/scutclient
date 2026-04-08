@@ -89,4 +89,4 @@ SCUT Router Podcast on [Telegram](https://t.me/joinchat/AAAAAERy9tE0gUvyTM_GrA)
 
 ![](https://www.gnu.org/graphics/agplv3-155x51.png)
 
-We believe that you know what you are doing. You should get this software for free.
+We believe that you know what you are doing. You should get this software for free. 
