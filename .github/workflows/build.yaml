@@ -36,17 +36,28 @@ jobs:
 
       - name: Configure and Compile
         run: |
+          # 1. 更新并安装所有 feeds 依赖（这是编译界面的前提）
           ./scripts/feeds update -a
+          ./scripts/feeds install -a luci
           ./scripts/feeds install -a
           
-          # 开启编译选项
+          # 2. 【核心修复】强行将 SDK 的编译规则链接到正确位置
+          # 很多 SDK 默认不带这些，我们得手动去 feeds 目录里翻出来
+          mkdir -p include
+          [ -f feeds/luci/luci.mk ] && cp feeds/luci/luci.mk include/
+          
+          # 3. 强制写入配置
           echo "CONFIG_PACKAGE_scutclient=m" >> .config
           echo "CONFIG_PACKAGE_luci-app-scutclient-plus=m" >> .config
           
+          # 同步配置并生成 .config 文件
           make defconfig
           
-          # 编译核心和界面 (忽略警告，加速编译)
-          make package/scutclient/compile V=s CFLAGS="-Wno-error" -j$(nproc)
+          # 4. 编译
+          # 先单独编译核心程序
+          make package/scutclient/compile V=s -j$(nproc)
+          
+          # 再编译界面（如果不成功，这行会报错，但我们可以看到具体缺什么）
           make package/luci-app-scutclient-plus/compile V=s -j$(nproc)
 
       - name: Upload Artifacts
